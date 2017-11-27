@@ -2073,7 +2073,7 @@ impl ReadinessQueue {
                 head_readiness: AtomicPtr::new(ptr),
                 tail_readiness: UnsafeCell::new(ptr),
                 end_marker: end_marker,
-                sleep_marker: sleep_marker,
+                sleep_marker: sleep_marker, // FIXME just used by consumer, no need to be marker-node
                 closed_marker: closed_marker,
             })
         })
@@ -2285,6 +2285,7 @@ impl ReadinessQueueInner {
                     // debug_assert!(node_ptr != self.end_marker());
                     debug_assert!(node_ptr != self.sleep_marker());
 
+                    // FIXME, missing guard, must not release_node of closed-marker and sleep-marker
                     if node_ptr != self.end_marker() {
                         // The readiness queue is shutdown, but the enqueue flag was
                         // set. This means that we are responsible for decrementing
@@ -2320,7 +2321,13 @@ impl ReadinessQueueInner {
         let mut tail = *self.tail_readiness.get();
         let mut next = (*tail).next_readiness.load(Acquire);
 
-        if tail == self.end_marker() || tail == self.sleep_marker() || tail == self.closed_marker() {
+        if tail == self.end_marker() || tail == self.sleep_marker() || tail == self.closed_marker() { // FIXME use `while` instead of `if` to skip marker-sequence
+
+            // FIXME, closed-marker should be handled like hard end!
+            if tail == self.closed_marker() {
+                return Dequeue::Empty;
+            }
+
             if next.is_null() {
                 return Dequeue::Empty;
             }
@@ -2347,7 +2354,7 @@ impl ReadinessQueueInner {
         }
 
         if self.head_readiness.load(Acquire) != tail {
-            return Dequeue::Inconsistent;
+            return Dequeue::Inconsistent; // FIXME, this is no inconsistency, just concurrent assignment of head, so tail->next having been modified. For consistency reasons exit and rerun!
         }
 
         // Push the stub node
