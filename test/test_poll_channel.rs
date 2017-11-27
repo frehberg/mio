@@ -4,6 +4,7 @@ use mio::event::Event;
 use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
 #[test]
 pub fn test_poll_channel_edge() {
@@ -171,6 +172,82 @@ pub fn test_poll_channel_level() {
     // Wait, but nothing should happen
     let num = poll.poll(&mut events, Some(Duration::from_millis(300))).unwrap();
     assert_eq!(0, num);
+}
+
+#[test]
+pub fn test_poll_channel_level_slicing() {
+    const MILLIS_TOLLERANCE: u64 = 10;
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1);
+    let (tx0, rx0) = channel::channel();
+    //let (tx1, rx1) = channel::channel();
+
+    poll.register(&rx0, Token(123), Ready::readable(), PollOpt::level()).unwrap();
+    //poll.register(&rx1, Token(124), Ready::readable(), PollOpt::level()).unwrap();
+
+    let num = poll.poll(&mut events, Some(Duration::from_millis(0))).unwrap();
+    assert_eq!(0, num);
+
+    let pre_poll = Instant::now();
+
+    // Wait, but nothing should happen
+    let num = poll.poll(&mut events, Some(Duration::from_millis(300))).unwrap();
+    assert_eq!(0, num);
+    let post_poll = Instant::now();
+
+    assert!(post_poll - pre_poll > Duration::from_millis(MILLIS_TOLLERANCE));
+
+    // Push the values for each channel
+    tx0.send("hello").unwrap();
+    //tx1.send("hello").unwrap();
+
+    //
+    // 1.) Polling will contain the first event, verify timeout is within tollerance
+    //
+    let pre_poll = Instant::now();
+
+    let num = poll.poll(&mut events, Some(Duration::from_millis(300))).unwrap();
+    assert!(1 == num, "actually got {}", num);
+
+    let event = events.get(0).unwrap();
+    assert_eq!(event.token(), Token(123));
+    assert_eq!(event.readiness(), Ready::readable());
+
+    // Read the value
+    assert_eq!("hello", rx0.try_recv().unwrap());
+    let post_poll = Instant::now();
+    assert!(post_poll - pre_poll < Duration::from_millis(MILLIS_TOLLERANCE));
+
+//    //
+//    // 2.) Polling will contain the second event, verify timeout is within tollerance
+//    //
+//    let pre_poll = Instant::now();
+//
+//    let num = poll.poll(&mut events, Some(Duration::from_millis(300))).unwrap();
+//    assert!(1 == num, "actually got {}", num);
+//
+//    let event = events.get(0).unwrap();
+//    assert_eq!(event.token(), Token(124));
+//    assert_eq!(event.readiness(), Ready::readable());
+//
+//    // Read the value
+//    assert_eq!("hello", rx1.try_recv().unwrap());
+//    let post_poll = Instant::now();
+//    assert!(post_poll - pre_poll < Duration::from_millis(MILLIS_TOLLERANCE));
+
+    //
+    // Wait, but nothing should happen, verify timeout
+    //
+    let pre_poll = Instant::now();
+
+    let num = poll.poll(&mut events, Some(Duration::from_millis(300))).unwrap();
+    assert_eq!(0, num);
+    let post_poll = Instant::now();
+
+    assert!(post_poll - pre_poll >= Duration::from_millis(300), "actually got {}",
+            (post_poll - pre_poll).as_secs());
+
 }
 
 #[test]
