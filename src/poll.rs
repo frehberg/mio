@@ -2196,18 +2196,28 @@ impl ReadinessQueue {
 
         // If the tail is not currently set to `end_marker`, then the queue is
         // not empty.
-        if tail != end_marker {
+        if tail != end_marker { // FIXME: maybe check also for closed_marker?
             return false;
         }
 
+        // POST: tail == end_marker && tail != sleep_marker
+
+        // PRE: tail == end_marker && tail != sleep_marker && tail->next == ?
+
+        // FIXME: seems leak! How do we know sleep_marker is unbound? Assigning null will discard next-elements and causing inconsistency
         self.inner.sleep_marker.next_readiness.store(ptr::null_mut(), Relaxed);
 
+        // CHECKME:  will only succeed if (head == end_marker) Why assuming the end_marker is head of the queue?
         let actual = self.inner.head_readiness.compare_and_swap(
             end_marker, sleep_marker, AcqRel);
 
+        // POST: (success: actual == sleep_marker && end_marker->next == sleep_marker) || (fail: actual == head )
+        // CHECKME:  in concurrent/multi-thread applications we might not win the race of compare_and_swap()
+        //           why is debug_assert enforcing the win-condition??!
         debug_assert!(actual != sleep_marker);
 
         if actual != end_marker {
+            // POST: tail==end_marker && and tail->next==sleep_marker
             // The readiness queue is not empty
             return false;
         }
