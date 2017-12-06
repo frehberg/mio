@@ -2330,7 +2330,7 @@ impl ReadinessQueueInner {
         // We dont need to attach the end_marker now, as head is already pointing to another node.
         if self.head_readiness.load(Acquire) != tail {
             // Other thread attached a new node as new `head` concurrently, but tail->next might not be updated yet
-            // Note: in this case the end_marker will no element of the queue!!
+            // Note: in this case the end_marker will be no element of the queue!!
             return Dequeue::Empty;
         }
 
